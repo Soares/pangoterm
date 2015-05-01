@@ -125,11 +125,11 @@ int main(int argc, char *argv[])
 
   PangoTerm *pt = pangoterm_new(CONF_lines, CONF_cols);
 
-  GdkColor fg_col;
-  gdk_color_parse(CONF_foreground, &fg_col);
+  GdkRGBA fg_col;
+  gdk_rgba_parse(&fg_col, CONF_foreground);
 
-  GdkColor bg_col;
-  gdk_color_parse(CONF_background, &bg_col);
+  GdkRGBA bg_col;
+  gdk_rgba_parse(&bg_col, CONF_background);
 
   pangoterm_set_default_colors(pt, &fg_col, &bg_col);
 

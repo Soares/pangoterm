@@ -105,8 +105,8 @@ struct PangoTerm {
       unsigned int dwl       : 1;
       unsigned int dhl       : 2;
     } attrs;
-    GdkColor fg_col;
-    GdkColor bg_col;
+    GdkRGBA fg_col;
+    GdkRGBA bg_col;
     PangoAttrList *pangoattrs;
     PangoLayout *layout;
   } pen;
@@ -135,14 +135,14 @@ struct PangoTerm {
   int cell_width;
   int cell_height;
 
-  GdkColor fg_col;
+  GdkRGBA fg_col;
 
   int has_focus;
   int cursor_visible;    /* VTERM_PROP_CURSORVISIBLE */
   int cursor_blinkstate; /* during high state of blink */
   int cursor_hidden_for_redraw; /* true to temporarily hide during redraw */
   VTermPos cursorpos;
-  GdkColor cursor_col;
+  GdkRGBA cursor_col;
   int cursor_shape;
 
 #define CURSOR_ENABLED(pt) ((pt)->cursor_visible && !(pt)->cursor_hidden_for_redraw)
@@ -152,7 +152,7 @@ struct PangoTerm {
   GtkWidget *termwin;
 
   cairo_surface_t *buffer;
-  GdkDrawable *termdraw;
+  GdkWindow *termdraw;
   /* area in buffer that needs flushing to termdraw */
   GdkRectangle dirty_area;
 
@@ -588,8 +588,8 @@ static void flush_pending(PangoTerm *pt)
     gdk_cairo_rectangle(gc, &pending_area);
     cairo_clip(gc);
 
-    GdkColor bg = pt->pen.attrs.reverse ? pt->pen.fg_col : pt->pen.bg_col;
-    gdk_cairo_set_source_color(gc, &bg);
+    GdkRGBA bg = pt->pen.attrs.reverse ? pt->pen.fg_col : pt->pen.bg_col;
+    gdk_cairo_set_source_rgba(gc, &bg);
     cairo_paint(gc);
 
     cairo_restore(gc);
@@ -628,8 +628,8 @@ static void flush_pending(PangoTerm *pt)
     pango_layout_iter_free(iter);
 
     /* Draw glyphs */
-    GdkColor fg = pt->pen.attrs.reverse ? pt->pen.bg_col : pt->pen.fg_col;
-    gdk_cairo_set_source_color(gc, &fg);
+    GdkRGBA fg = pt->pen.attrs.reverse ? pt->pen.bg_col : pt->pen.fg_col;
+    gdk_cairo_set_source_rgba(gc, &fg);
     cairo_move_to(gc, glyphs_x, glyphs_y);
     pango_cairo_show_layout(gc, layout);
 
@@ -703,7 +703,7 @@ static void put_erase(PangoTerm *pt, int width, VTermPos pos)
 static void chpen(VTermScreenCell *cell, void *user_data, int cursoroverride)
 {
   PangoTerm *pt = user_data;
-  GdkColor col;
+  GdkRGBA col;
 
 #define ADDATTR(a) \
   do { \
@@ -838,7 +838,7 @@ static void repaint_phyrect(PangoTerm *pt, PhyRect ph_rect)
 
         switch(pt->cursor_shape) {
         case VTERM_PROP_CURSORSHAPE_UNDERLINE:
-          gdk_cairo_set_source_color(gc, &pt->cursor_col);
+          gdk_cairo_set_source_rgba(gc, &pt->cursor_col);
           cairo_rectangle(gc,
               cursor_area.x,
               cursor_area.y + (int)(cursor_area.height * 0.85),
@@ -847,7 +847,7 @@ static void repaint_phyrect(PangoTerm *pt, PhyRect ph_rect)
           cairo_fill(gc);
           break;
         case VTERM_PROP_CURSORSHAPE_BAR_LEFT:
-          gdk_cairo_set_source_color(gc, &pt->cursor_col);
+          gdk_cairo_set_source_rgba(gc, &pt->cursor_col);
           cairo_rectangle(gc,
               cursor_area.x,
               cursor_area.y,
@@ -1152,7 +1152,7 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *user_data)
     break;
 
   case VTERM_PROP_ICONNAME:
-    gdk_window_set_icon_name(GDK_WINDOW(pt->termwin->window), val->string);
+    gdk_window_set_icon_name(gtk_widget_get_window(GTK_WIDGET(pt->termwin)), val->string);
     break;
 
   case VTERM_PROP_TITLE:
@@ -1732,7 +1732,7 @@ static void widget_quit(GtkContainer* widget, gpointer unused_data)
   gtk_main_quit();
 }
 
-static GdkPixbuf *load_icon(GdkColor *background)
+static GdkPixbuf *load_icon(GdkRGBA *background)
 {
   /* This technique stolen from 
    *   http://git.gnome.org/browse/gtk+/tree/gtk/gtkicontheme.c#n3180
@@ -1758,14 +1758,15 @@ static GdkPixbuf *load_icon(GdkColor *background)
       "     height=\"64\">\n"
       "  <style type=\"text/css\">\n"
       "    #screen {\n"
-      "      fill: #%02x%02x%02x !important;\n"
+      "      fill: rgba(%d, %d, %d, %f) !important;\n"
       "    }\n"
       "  </style>\n"
       "  <xi:include href=\"data:image/svg+xml;base64,%s" "\"/>\n"
       "</svg>",
-      background->red   / 255,
-      background->green / 255,
-      background->blue  / 255,
+      (gint) (background->red * 255),
+      (gint) (background->green * 255),
+      (gint) (background->blue * 255),
+      background->alpha,
       icon_base64);
   g_free(icon_base64);
 
@@ -1794,7 +1795,7 @@ PangoTerm *pangoterm_new(int rows, int cols)
   pt->fonts[1] = NULL;
   pt->font_size = CONF_size;
 
-  gdk_color_parse(CONF_cursor, &pt->cursor_col);
+  gdk_rgba_parse(&pt->cursor_col, CONF_cursor);
 
   /* Create VTerm */
   pt->vt = vterm_new(rows, cols);
@@ -1820,30 +1821,30 @@ PangoTerm *pangoterm_new(int rows, int cols)
 
   gtk_widget_realize(pt->termwin);
 
-  pt->termdraw = pt->termwin->window;
+  pt->termdraw = gtk_widget_get_window(pt->termwin);
 
   gdk_window_set_cursor(GDK_WINDOW(pt->termdraw), gdk_cursor_new(GDK_XTERM));
 
   cursor_start_blinking(pt);
   pt->cursor_shape = VTERM_PROP_CURSORSHAPE_BLOCK;
 
-  GdkEventMask mask = gdk_window_get_events(pt->termwin->window);
-  gdk_window_set_events(pt->termwin->window, mask|GDK_BUTTON_PRESS_MASK|GDK_BUTTON_RELEASE_MASK|GDK_POINTER_MOTION_MASK);
+  GdkEventMask mask = gdk_window_get_events(gtk_widget_get_window(pt->termwin));
+  gdk_window_set_events(gtk_widget_get_window(pt->termwin), mask|GDK_BUTTON_PRESS_MASK|GDK_BUTTON_RELEASE_MASK|GDK_POINTER_MOTION_MASK);
 
-  g_signal_connect(G_OBJECT(pt->termwin), "expose-event", GTK_SIGNAL_FUNC(widget_expose), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "key-press-event", GTK_SIGNAL_FUNC(widget_keypress), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "button-press-event",   GTK_SIGNAL_FUNC(widget_mousepress), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "button-release-event", GTK_SIGNAL_FUNC(widget_mousepress), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "motion-notify-event",  GTK_SIGNAL_FUNC(widget_mousemove), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "scroll-event",  GTK_SIGNAL_FUNC(widget_scroll), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "focus-in-event",  GTK_SIGNAL_FUNC(widget_focus_in),  pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "focus-out-event", GTK_SIGNAL_FUNC(widget_focus_out), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "destroy", GTK_SIGNAL_FUNC(widget_quit), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "expose-event", G_CALLBACK(widget_expose), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "key-press-event", G_CALLBACK(widget_keypress), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "button-press-event",   G_CALLBACK(widget_mousepress), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "button-release-event", G_CALLBACK(widget_mousepress), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "motion-notify-event",  G_CALLBACK(widget_mousemove), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "scroll-event",  G_CALLBACK(widget_scroll), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "focus-in-event",  G_CALLBACK(widget_focus_in),  pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "focus-out-event", G_CALLBACK(widget_focus_out), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "destroy", G_CALLBACK(widget_quit), pt);
 
   pt->im_context = gtk_im_context_simple_new();
 
-  g_signal_connect(G_OBJECT(pt->im_context), "commit", GTK_SIGNAL_FUNC(widget_im_commit), pt);
-  g_signal_connect(G_OBJECT(pt->termwin), "check-resize", GTK_SIGNAL_FUNC(widget_resize), pt);
+  g_signal_connect(G_OBJECT(pt->im_context), "commit", G_CALLBACK(widget_im_commit), pt);
+  g_signal_connect(G_OBJECT(pt->termwin), "check-resize", G_CALLBACK(widget_resize), pt);
 
   pt->dragging = NO_DRAG;
 
@@ -1863,7 +1864,7 @@ void pangoterm_free(PangoTerm *pt)
   vterm_free(pt->vt);
 }
 
-void pangoterm_set_default_colors(PangoTerm *pt, GdkColor *fg_col, GdkColor *bg_col)
+void pangoterm_set_default_colors(PangoTerm *pt, GdkRGBA *fg_col, GdkRGBA *bg_col)
 {
   pt->fg_col = *fg_col;
 
@@ -1878,10 +1879,7 @@ void pangoterm_set_default_colors(PangoTerm *pt, GdkColor *fg_col, GdkColor *bg_
   bg.blue  = bg_col->blue  / 257;
 
   vterm_state_set_default_colors(vterm_obtain_state(pt->vt), &fg, &bg);
-
-  GdkColormap* colormap = gdk_colormap_get_system();
-  gdk_rgb_find_color(colormap, bg_col);
-  gdk_window_set_background(pt->termdraw, bg_col);
+  gdk_window_set_background_rgba(pt->termdraw, bg_col);
 
   GdkPixbuf *icon = load_icon(bg_col);
   gtk_window_set_icon(GTK_WINDOW(pt->termwin), icon);
