@@ -29,6 +29,7 @@
 
 CONF_STRING(foreground, 0, "gray90", "Foreground colour", "COL");
 CONF_STRING(background, 0, "black",  "Background colour", "COL");
+CONF_DOUBLE(opacity, 0, 1,  "Opacity", "NUM");
 
 CONF_STRING(font, 0,   "DejaVu Sans Mono", "Font name", "STR");
 
@@ -131,7 +132,7 @@ int main(int argc, char *argv[])
   GdkColor bg_col;
   gdk_color_parse(CONF_background, &bg_col);
 
-  pangoterm_set_default_colors(pt, &fg_col, &bg_col);
+  pangoterm_set_default_colors(pt, &fg_col, &bg_col, CONF_opacity);
 
   pangoterm_set_fonts(pt, CONF_font, alt_fonts);
 

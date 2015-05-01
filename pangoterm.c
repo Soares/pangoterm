@@ -136,6 +136,7 @@ struct PangoTerm {
   int cell_height;
 
   GdkColor fg_col;
+  double opacity;
 
   int has_focus;
   int cursor_visible;    /* VTERM_PROP_CURSORVISIBLE */
@@ -1863,8 +1864,9 @@ void pangoterm_free(PangoTerm *pt)
   vterm_free(pt->vt);
 }
 
-void pangoterm_set_default_colors(PangoTerm *pt, GdkColor *fg_col, GdkColor *bg_col)
+void pangoterm_set_default_colors(PangoTerm *pt, GdkColor *fg_col, GdkColor *bg_col, double opacity)
 {
+  pt->opacity = opacity;
   pt->fg_col = *fg_col;
 
   VTermColor fg;
@@ -1985,6 +1987,7 @@ void pangoterm_start(PangoTerm *pt)
     gtk_window_parse_geometry(GTK_WINDOW(pt->termwin), CONF_geometry);
 
   gtk_widget_show_all(pt->termwin);
+  gtk_window_set_opacity(GTK_WINDOW(pt->termwin), (gdouble)(pt->opacity));
 }
 
 void pangoterm_push_bytes(PangoTerm *pt, const char *bytes, size_t len)
