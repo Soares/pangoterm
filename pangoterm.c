@@ -523,11 +523,14 @@ static void blit_buffer(PangoTerm *pt, GdkRectangle *area)
     };
     gdk_cairo_rectangle(gc, &rect);
     cairo_clip(gc);
+    /* TODO: Remove
+    printf("blit_buffer fg %f %f %f\n", pt->fg_col.red, pt->fg_col.green, pt->fg_col.blue);
+    */
     cairo_set_source_rgba(gc,
-        pt->fg_col.red   / 65535.0,
-        pt->fg_col.green / 65535.0,
-        pt->fg_col.blue  / 65535.0,
-        0.3);
+        ((gdouble)(pt->fg_col.red)) / 255,
+        ((gdouble)(pt->fg_col.green)) / 255,
+        ((gdouble)(pt->fg_col.blue)) / 255,
+        0.3); /* TODO: Use alpha channel. */
     cairo_paint(gc);
 
     rect.height = pixels_tall;
@@ -535,10 +538,10 @@ static void blit_buffer(PangoTerm *pt, GdkRectangle *area)
     gdk_cairo_rectangle(gc, &rect);
     cairo_clip(gc);
     cairo_set_source_rgba(gc,
-        pt->fg_col.red   / 65535.0,
-        pt->fg_col.green / 65535.0,
-        pt->fg_col.blue  / 65535.0,
-        0.7);
+        ((gdouble)(pt->fg_col.red)) / 255,
+        ((gdouble)(pt->fg_col.green)) / 255,
+        ((gdouble)(pt->fg_col.blue)) / 255,
+        0.7); /* TODO: Use alpha channel. */
     cairo_paint(gc);
 
     cairo_restore(gc);
@@ -759,11 +762,14 @@ static void chpen(VTermScreenCell *cell, void *user_data, int cursoroverride)
     flush_pending(pt);
   }
 
-  // Upscale 8->16bit
-  col.red   = 257 * cell->fg.red;
-  col.green = 257 * cell->fg.green;
-  col.blue  = 257 * cell->fg.blue;
+  // 16bit->[0, 1]
+  col.red   = ((gdouble) cell->fg.red) / 255;
+  col.green = ((gdouble) cell->fg.green) / 255;
+  col.blue  = ((gdouble) cell->fg.blue) / 255;
+  col.alpha = 1;
+  /* TODO: Respect alpha. */
 
+  /* TODO: Figure out what this is doing and probably reverse colors. */
   if(cursoroverride) {
     int grey = ((int)pt->cursor_col.red + pt->cursor_col.green + pt->cursor_col.blue)*2 > 65535*3
         ? 0 : 65535;
@@ -775,9 +781,11 @@ static void chpen(VTermScreenCell *cell, void *user_data, int cursoroverride)
     pt->pen.fg_col = col;
   }
 
-  col.red   = 257 * cell->bg.red;
-  col.green = 257 * cell->bg.green;
-  col.blue  = 257 * cell->bg.blue;
+  col.red   = ((gdouble) cell->bg.red) / 255;
+  col.green = ((gdouble) cell->bg.green) / 255;
+  col.blue  = ((gdouble) cell->bg.blue) / 255;
+  col.alpha = 1;
+  /* TODO: Respect alpha. */
 
   if(cursoroverride)
     col = pt->cursor_col;
@@ -1152,11 +1160,11 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *user_data)
     break;
 
   case VTERM_PROP_ICONNAME:
-    gdk_window_set_icon_name(gtk_widget_get_window(GTK_WIDGET(pt->termwin)), val->string);
+    /* TODO: gdk_window_set_icon_name(GDK_WINDOW(pt->termwin->window), val->string); */
     break;
 
   case VTERM_PROP_TITLE:
-    gtk_window_set_title(GTK_WINDOW(pt->termwin), val->string);
+    /* TODO: gtk_window_set_title(GTK_WINDOW(pt->termwin), val->string); */
     break;
 
   case VTERM_PROP_ALTSCREEN:
@@ -1749,6 +1757,8 @@ static GdkPixbuf *load_icon(GdkRGBA *background)
   gchar *icon_base64 = g_base64_encode((guchar*)icon, icon_len);
   g_free(icon);
 
+  /* TODO remove: */
+  printf("Icon: %f %f %f %f", background->red, background->green, background->blue, background->alpha);
   gchar *str = g_strdup_printf(
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n"
       "<svg version=\"1.1\"\n"
@@ -1763,9 +1773,9 @@ static GdkPixbuf *load_icon(GdkRGBA *background)
       "  </style>\n"
       "  <xi:include href=\"data:image/svg+xml;base64,%s" "\"/>\n"
       "</svg>",
-      (gint) (background->red * 255),
+      (gint) (background->red   * 255),
       (gint) (background->green * 255),
-      (gint) (background->blue * 255),
+      (gint) (background->blue  * 255),
       background->alpha,
       icon_base64);
   g_free(icon_base64);
@@ -1828,8 +1838,8 @@ PangoTerm *pangoterm_new(int rows, int cols)
   cursor_start_blinking(pt);
   pt->cursor_shape = VTERM_PROP_CURSORSHAPE_BLOCK;
 
-  GdkEventMask mask = gdk_window_get_events(gtk_widget_get_window(pt->termwin));
-  gdk_window_set_events(gtk_widget_get_window(pt->termwin), mask|GDK_BUTTON_PRESS_MASK|GDK_BUTTON_RELEASE_MASK|GDK_POINTER_MOTION_MASK);
+  GdkEventMask mask = gdk_window_get_events(pt->termdraw);
+  gdk_window_set_events(pt->termdraw, mask|GDK_BUTTON_PRESS_MASK|GDK_BUTTON_RELEASE_MASK|GDK_POINTER_MOTION_MASK);
 
   g_signal_connect(G_OBJECT(pt->termwin), "expose-event", G_CALLBACK(widget_expose), pt);
   g_signal_connect(G_OBJECT(pt->termwin), "key-press-event", G_CALLBACK(widget_keypress), pt);
@@ -1869,16 +1879,27 @@ void pangoterm_set_default_colors(PangoTerm *pt, GdkRGBA *fg_col, GdkRGBA *bg_co
   pt->fg_col = *fg_col;
 
   VTermColor fg;
-  fg.red   = fg_col->red   / 257;
-  fg.green = fg_col->green / 257;
-  fg.blue  = fg_col->blue  / 257;
+  fg.red   = (gint) (fg_col->red * 255);
+  fg.green = (gint) (fg_col->green * 255);
+  fg.blue  = (gint) (fg_col->blue * 255);
+  /* TODO: Respect alpha. */
 
   VTermColor bg;
-  bg.red   = bg_col->red   / 257;
-  bg.green = bg_col->green / 257;
-  bg.blue  = bg_col->blue  / 257;
+  bg.red   = (gint) (bg_col->red * 255);
+  bg.green = (gint) (bg_col->green * 255);
+  bg.blue  = (gint) (bg_col->blue  * 255);
+  /* TODO: Respect alpha. */
+
+  /* TODO: Remove
+  printf("set_default fg_col %f %f %f %f\n", fg_col->red, fg_col->blue, fg_col->green, fg_col->alpha);
+  printf("set_default bg_col %f %f %f %f\n", bg_col->red, bg_col->blue, bg_col->green, bg_col->alpha);
+  printf("set_default fg %d %d %d\n", fg.red, fg.blue, fg.green);
+  printf("set_default bg %d %d %d\n", bg.red, bg.blue, bg.green);
+  */
+
 
   vterm_state_set_default_colors(vterm_obtain_state(pt->vt), &fg, &bg);
+
   gdk_window_set_background_rgba(pt->termdraw, bg_col);
 
   GdkPixbuf *icon = load_icon(bg_col);
